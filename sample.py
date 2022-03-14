@@ -111,6 +111,9 @@ def main():
             token.write(creds.to_json())
 
     user_email = get_user_info(creds).get("email")
+
+    os.makedirs('data', exist_ok=True)
+
     try:
         youtube = build(api_service_name, api_version, credentials=creds)
 
