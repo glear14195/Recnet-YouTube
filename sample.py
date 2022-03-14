@@ -37,6 +37,7 @@ def get_user_info(credentials):
 def map_liked_video_data(in_data):
     return {
         "video_title": in_data["snippet"]["title"],
+        "video_id": in_data["id"],
         "video_description": in_data["snippet"]["description"],
         "channel_title": in_data["snippet"]["channelTitle"],
         "video_tags": in_data["snippet"].get("tags"),
@@ -47,6 +48,7 @@ def map_liked_video_data(in_data):
 def map_subscribed_data(in_data):
     return {
         "channel_title": in_data["snippet"]["title"],
+        "channel_id": in_data["snippet"]["channelId"],
         "channel_description": in_data["snippet"]["description"],
         "total_videos": in_data["contentDetails"]["totalItemCount"],
         "new_videos": in_data["contentDetails"]["newItemCount"],
@@ -115,12 +117,12 @@ def main():
         all_subscriptions = get_subscriptions(youtube)
         print(f"Found {len(all_subscriptions)} subscriptions")
         sub_df = DF(all_subscriptions)
-        sub_df.to_csv(f"{user_email}_subscriptions.csv")
+        sub_df.to_csv(f"data/{user_email}_subscriptions.csv")
 
         all_liked_videos = get_liked_videos(youtube)
         print(f"Found {len(all_liked_videos)} liked videos")
         liked_df = DF(all_liked_videos)
-        liked_df.to_csv(f"{user_email}_liked_videos.csv")
+        liked_df.to_csv(f"data/{user_email}_liked_videos.csv")
 
 
     except HttpError as err:
