@@ -10,8 +10,10 @@ import string
 from sklearn.metrics.pairwise import cosine_similarity
 from collections import defaultdict
 
-MIN_TEXT_LIMIT = 150
-TOPIC_COUNT = 15
+MIN_TEXT_LIMIT = 365 # Min text length cutoff to consider a liked video
+TOPIC_COUNT = 30 # Number of topics to classify into
+SIMILARITY_THRESHOLD = 0.9996 # The min cosine similarity value to consider
+GROUPING_ATTRIBUTE = 'video_title' # Set to channel_title for channel level classification
 
 def get_script_from_video_id(video_id):
     """
@@ -61,7 +63,7 @@ def get_username_from_fname(fname):
 
 def add_scripts_to_all_liked_videos():
     for (fname, liked_df) in get_all_liked_videos_df():
-        print(f'# STARTING FOR {fname}')
+        print(f'# STARTING TRANSCRIPT EXTRACTION FOR {fname}')
 
         # Add scripts to liked_videos
         if 'script' not in liked_df.columns:
@@ -76,19 +78,29 @@ def add_scripts_to_all_liked_videos():
         liked_df = clean_df_script(liked_df)
 
         liked_df.to_csv(fname)
-        print(f'# DONE FOR {fname}')
+        print(f'# DONE TRANSCRIPT EXTRACTION FOR {fname}')
 
 def get_recommendations_for_username(username):
-    max_matches_all = np.argsort([max(s) for s in new_cosine_sim])[::-1]
+    max_vals = [max(s) for s in new_cosine_sim]
+    max_matches_all = np.argsort(max_vals)[::-1]
 
-    max_matches_user = [i for i in max_matches_all if i in utoi[username]][:4]
+    max_matches_user = [
+        i for i in max_matches_all 
+        if (
+            i in utoi[username] and 
+            max_vals[i] >= SIMILARITY_THRESHOLD
+        )
+    ]
+    max_matches_user.sort(key=lambda x: max_vals[x], reverse=True)
+    max_matches_user = max_matches_user[:7]
 
     ufr_using_channel_map = defaultdict(lambda: defaultdict(list))
     for match_index in max_matches_user:
         matched_index = similarity_indices[match_index][-1]
-        ufr_using_channel_map[itou[match_index]][itou[matched_index]].append(
-            (gdf.loc[match_index, 'channel_title'], gdf.loc[matched_index, 'channel_title'])
-        )
+        if gdf.loc[match_index, 'cluster'] == gdf.loc[matched_index, 'cluster']:
+            ufr_using_channel_map[itou[match_index]][itou[matched_index]].append(
+                (gdf.loc[match_index, GROUPING_ATTRIBUTE], gdf.loc[matched_index, GROUPING_ATTRIBUTE])
+            )
 
     return ufr_using_channel_map
 
@@ -96,26 +108,38 @@ def print_rec_string(ufr_using_channel_map):
     for (rec_for_user, fdict) in ufr_using_channel_map.items():
         print(f"Recommendation for {rec_for_user}:")
         for (suggested_friend, channel_pairs) in fdict.items():
-            print(f"  # Check out {suggested_friend}, you follow similar channels like:")
+            print(f"  # Check out {suggested_friend}, you follow similar items like:")
             for p in channel_pairs:
                 print(f"    ->Yours: {p[0]} | Theirs: {p[1]}")
 
 
+"""
+Starting main script here
+"""
 add_scripts_to_all_liked_videos()
 
 dfs = get_all_liked_videos_df(True)
 dfs = [d[1] for d in dfs]
 df = pd.concat(dfs)
+df.video_tags = df.video_tags.replace(np.nan, '')
+df.video_description = df.video_description.replace(np.nan, '')
 
 df['video_tags_parsed'] = df['video_tags'].apply(lambda x: pd.eval(x) if x else []).apply(lambda x: ' '.join(x))
-df['text'] = df.apply(lambda x: x['script'] + x['video_tags_parsed'] + x['video_description'], axis=1)
+df['text'] = df.apply(lambda x: x['script'] + x['video_tags_parsed'] + x['video_title'] + x['video_description'], axis=1)
+df['text'] = df['text'].str.replace(
+    r'(http|ftp|https):\/\/([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])', 
+    '', regex=True
+)
 df['text'] = df['text'].apply(lambda x: x.replace('\n', ' ').translate(str.maketrans('','',string.punctuation)))
+df['text'] = df['text'].str.lower()
+
 df = df[(df['text'].str.strip() != '') & (df['text'].str.len() > MIN_TEXT_LIMIT)]
 df = df.reset_index()
 
 token = RegexpTokenizer(r'[a-zA-Z]+')
 model = TfidfVectorizer(
-    analyzer='word', stop_words='english', tokenizer = token.tokenize, min_df = 1, ngram_range = (1,2)
+    analyzer='word', tokenizer = token.tokenize, stop_words='english', 
+    min_df = 5, ngram_range = (1,1)
 )
 v = model.fit_transform(df['text'])
 
@@ -133,10 +157,13 @@ for r in m2.components_:
     topic_words.append([words[e[1]] for e in a])
 
 df['cluster2'] = list(dt)
-ndf = df.drop(df.columns.difference(['username', 'channel_title', 'cluster2']), axis=1)
-gdf = ndf.groupby(['username', 'channel_title']).mean().reset_index()
+ndf = df.drop(df.columns.difference(['username', GROUPING_ATTRIBUTE, 'cluster2']), axis=1)
+gdf = ndf.groupby(['username', GROUPING_ATTRIBUTE]).mean().reset_index()
 
 a = np.stack(gdf['cluster2'].values)
+
+gdf['cluster'] = a.argmax(axis=1)
+
 cosine_sim = cosine_similarity(a, a, dense_output=False)
 
 # Suppress same username similarities
@@ -154,15 +181,8 @@ new_cosine_sim = np.array([
 
 similarity_indices = np.argsort(new_cosine_sim, axis=1)
 
-# GLOBAL MATCHING
-# top_max_matches = np.argsort([max(s) for s in new_cosine_sim])[::-1][:10] # TODO: Add threshold check?
-
-# user_friend_rec_using_channel_map = defaultdict(lambda: defaultdict(list))
-# for match_index in top_max_matches:
-#     matched_index = similarity_indices[match_index][-1]
-#     user_friend_rec_using_channel_map[itou[match_index]][itou[matched_index]].append(
-#         (gdf.loc[match_index, 'channel_title'], gdf.loc[matched_index, 'channel_title'])
-#     )
-
 for username in utoi.keys():
+    print("---------------------------------------------------------------------")
     print_rec_string(get_recommendations_for_username(username))
+
+print("---------------------------------------------------------------------")
