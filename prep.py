@@ -12,7 +12,7 @@ from collections import defaultdict
 
 MIN_TEXT_LIMIT = 365 # Min text length cutoff to consider a liked video
 TOPIC_COUNT = 30 # Number of topics to classify into
-SIMILARITY_THRESHOLD = 0.9996 # The min cosine similarity value to consider
+SIMILARITY_THRESHOLD = 0.9994 # The min cosine similarity value to consider
 GROUPING_ATTRIBUTE = 'video_title' # Set to channel_title for channel level classification
 REC_SIZE = 7 # Maximum number of recommendations to return
 
@@ -113,6 +113,9 @@ def get_recommendations_for_username(username):
     return ufr_using_channel_map
 
 def print_rec_string(ufr_using_channel_map):
+    if ufr_using_channel_map.keys():
+        print("-"*120)
+
     for (rec_for_user, fdict) in ufr_using_channel_map.items():
         print(f"Recommendation for {rec_for_user}:")
         for (suggested_friend, channel_pairs) in fdict.items():
@@ -190,7 +193,6 @@ new_cosine_sim = np.array([
 similarity_indices = np.argsort(new_cosine_sim, axis=1)
 
 for username in utoi.keys():
-    print("---------------------------------------------------------------------")
     print_rec_string(get_recommendations_for_username(username))
 
-print("---------------------------------------------------------------------")
+print("-"*120)
