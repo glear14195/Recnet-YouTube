@@ -14,6 +14,7 @@ MIN_TEXT_LIMIT = 365 # Min text length cutoff to consider a liked video
 TOPIC_COUNT = 30 # Number of topics to classify into
 SIMILARITY_THRESHOLD = 0.9996 # The min cosine similarity value to consider
 GROUPING_ATTRIBUTE = 'video_title' # Set to channel_title for channel level classification
+REC_SIZE = 7 # Maximum number of recommendations to return
 
 def get_script_from_video_id(video_id):
     """
@@ -92,15 +93,22 @@ def get_recommendations_for_username(username):
         )
     ]
     max_matches_user.sort(key=lambda x: max_vals[x], reverse=True)
-    max_matches_user = max_matches_user[:7]
+    max_matches_user = max_matches_user
 
     ufr_using_channel_map = defaultdict(lambda: defaultdict(list))
+
+    indices_seen = set()
     for match_index in max_matches_user:
         matched_index = similarity_indices[match_index][-1]
-        if gdf.loc[match_index, 'cluster'] == gdf.loc[matched_index, 'cluster']:
+
+        if matched_index not in indices_seen and gdf.loc[match_index, 'cluster'] == gdf.loc[matched_index, 'cluster']:
+            indices_seen.add(matched_index)
             ufr_using_channel_map[itou[match_index]][itou[matched_index]].append(
                 (gdf.loc[match_index, GROUPING_ATTRIBUTE], gdf.loc[matched_index, GROUPING_ATTRIBUTE])
             )
+
+            if len(indices_seen) == REC_SIZE:
+                break
 
     return ufr_using_channel_map
 
